@@ -105,14 +105,25 @@ function extractFixture(row) {
     let columns = row.children();
     let match = columns.first().text().match(/\s+Round (\d+)\s+/);
     if (match) {
-      let round = match[1];
-      console.log(`Got round ${match[1]}`);
-      if ( columns.eq(1).text().trim().length > 0 ) {
+      let round = parseInt(match[1], 10);
+      if (columns.eq(1).text().trim().length > 0) {
         month = columns.eq(1).text().trim();
       }
       let day = columns.eq(2).text().trim();
       let date = `${day} ${month}`;
-      rounds.push({number: round, date: date, schedule: {}})
+      let schedule = {};
+      let bad = false;
+      [0, 1, 2, 3].forEach(i => {
+        const home = parseInt(columns.eq(3 + (i * 3)).text().trim(), 10);
+        const away = parseInt(columns.eq(3 + (i * 3) + 2).text().trim(), 10);
+        if ( !home ) {
+          bad = true;
+        }
+        schedule[home] = away;
+      });
+      if (!bad) {
+        rounds.push({number: round, date: date, schedule: schedule})
+      }
     }
     row = row.next();
     if (row.children().length <= 0) {
