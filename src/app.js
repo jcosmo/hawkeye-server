@@ -14,8 +14,9 @@ if (false) {
   FIXTURE_URL = 'http://localhost:3000/nsnta-fixture.html';
   LADDER_URL = 'http://localhost:3000/nsnta-ladder.html';
 } else {
-  FIXTURE_URL = 'http://nsnta.org/fixturesmens.html';
-  LADDER_URL = 'http://nsnta.org/laddermens.html';
+  NSNTA_GROUP = 'mens'; //'ladies', 'mixed'
+  FIXTURE_URL = `http://nsnta.org/fixtures${NSNTA_GROUP}.html`;
+  LADDER_URL = `http://nsnta.org/ladder${NSNTA_GROUP}.html`;
 }
 
 let clubs = [];
@@ -24,6 +25,7 @@ let teams = [];
 let fixture = {};
 let ladders = [];
 let aa;
+let scraped;
 
 function reset() {
   grades = [];
@@ -242,8 +244,6 @@ function sendResult() {
 }
 
 function scrape(req, res) {
-  reset();
-
   const url = FIXTURE_URL;
   console.log(`Loading fixture from ${url}`);
   request(url, function (error, response, html) {
@@ -264,7 +264,7 @@ function scrape(req, res) {
           extractLadders(firstLaddersContainer);
         }
 
-        let content = {
+        scraped = {
           ladders: ladders,
           fixture: fixture,
           clubs: clubs,
@@ -272,7 +272,7 @@ function scrape(req, res) {
           teams: teams
         };
         if (res) {
-          res.status(200).send(content).end();
+          res.status(200).send(scraped).end();
         }
         else {
           console.log("done");
@@ -293,7 +293,12 @@ app.get('/', function (req, res) {
 });
 
 app.get('/scrape', function (req, res) {
-  scrape(req, res);
+  if ( !scraped ) {
+    scrape(req, res);
+  }
+  else {
+    res.status(200).send(scraped).end();
+  }
 });
 
 
