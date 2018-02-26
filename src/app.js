@@ -33,6 +33,7 @@ function reset() {
   teams = [];
   fixture = {};
   ladders = [];
+  scraped = undefined;
 }
 
 function extractGrades(firstGradesContainer) {
@@ -301,6 +302,10 @@ app.get('/scrape', function (req, res) {
   }
 });
 
+app.get('/reset', function(req, res) {
+  reset();
+  res.status(200).send('OK').end();
+});
 
 if (true) {
   app.listen('8088');
