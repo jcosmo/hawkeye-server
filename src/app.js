@@ -7,6 +7,7 @@ const app = express();
 const LOCAL_NSNTA_CLONE = true;
 // Set to true to just try to parse all the data from the nsnta site rather than fire up a server
 const SCRAPE_ONLY = false;
+const DEBUG = false;
 
 const GRADE_NAME_MATCH = function (i, elem) {
   return aa(elem).children().length === 0 && aa(elem).text().match(/^\s*[A-D] GRADE|RESERVE|SPECIAL( [1-9])?\s*$/);
@@ -14,11 +15,11 @@ const GRADE_NAME_MATCH = function (i, elem) {
 const ROUND_NAME_MATCH = function (i, elem) {
   return aa(elem).children().length === 0 && aa(elem).text().match(/^\s*Round 1\s*$/);
 };
+const ROUND_LINK_MATCH = function (i, elem) {
+  return aa(elem).text().match(/Round /);
+};
 
 if (LOCAL_NSNTA_CLONE) {
-  FIXTURE_URL = 'http://localhost:3000/nsnta-fixture.html';
-  LADDER_URL = 'http://localhost:3000/nsnta-ladder.html';
-  MATCHES_FOR_GRADE_URL = 'http://localhost:3000/nsnta-matches-grade.html';
   NSNTA_GROUP = 'mens'; //'ladies', 'mixed'
   NSNTA_GROUP_CAMEL = 'Mens'; //'ladies', 'mixed'
   FIXTURE_URL = `http://localhost:3000/fixtures${NSNTA_GROUP}.html`;
@@ -37,8 +38,10 @@ let grades = [];
 let teams = [];
 let fixture = {};
 let ladders = [];
+let matches = [];
 let aa;
 let scraped;
+let outstanding_requests = 0;
 
 function reset() {
   grades = [];
@@ -64,7 +67,7 @@ function extractGrades(firstGradesContainer) {
       grade.level = parseInt(match[3].trim(), 10)
     }
 
-    if (SCRAPE_ONLY) {
+    if (SCRAPE_ONLY && DEBUG) {
       console.log(`Found Grade ${grade.fullName} as id ${grade.id}`);
     }
     grades.push(grade);
@@ -94,7 +97,7 @@ function extractGrades(firstGradesContainer) {
           let club = clubs.find(c => c.name === clubName);
           if (!club) {
             club = {id: clubs.length, name: clubName};
-            if (SCRAPE_ONLY){
+            if (SCRAPE_ONLY && DEBUG) {
               console.log(`Found new club ${club.name} as id ${club.id}`);
             }
             clubs.push(club);
@@ -106,7 +109,7 @@ function extractGrades(firstGradesContainer) {
             fixtureNumber: nextTeamNumber,
             name: teamName
           };
-          if (SCRAPE_ONLY) {
+          if (SCRAPE_ONLY && DEBUG) {
             console.log(`Added team ${team.name} to club ${club.name} as id ${team.id}`)
           }
           teams.push(team);
@@ -147,6 +150,10 @@ function teamMatchesName(team, name, recurse = true) {
       teamMatchesName(team, name.replace(/\d$/, '').trim(), false);
 }
 
+function findTeam(gradeId, name) {
+  return teams.find(t => t.gradeId === gradeId && teamMatchesName(t, name));
+}
+
 /*
 {
   round:
@@ -182,9 +189,9 @@ function extractLadders(firstLadderContainer) {
     laddersOnRow.forEach(ladder => {
       const team = {teamId: -1, points: 0, percentage: 0, won: 0, lost: 0};
       const name = firstLadderContainer.children().eq(index * 6 + offset).text().trim();
-      const match = teams.find(t => t.gradeId === ladder.gradeId && teamMatchesName(t, name));
+      const match = findTeam(ladder.gradeId, name);
       if (match) {
-        if (SCRAPE_ONLY) {
+        if (SCRAPE_ONLY && DEBUG) {
           console.log(`Matched ${name} in ladder ${ladder.id}`);
         }
         team.teamId = match.id;
@@ -259,55 +266,116 @@ function extractFixture(row) {
   fixture.rounds = rounds;
 }
 
-function sendResult() {
-  let content = {
-    fixture: fixture,
-    clubs: clubs,
-    grades: grades,
-    teams: teams
-  };
-
-  res.status(200).send(content).end();
+function toTitleCase(str) {
+  return str.replace(/\w\S*/g, function (txt) {
+    return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+  });
 }
 
-function toTitleCase(str)
-{
-  return str.replace(/\w\S*/g, function(txt){return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();});
+function handleScrapeCompletion(res) {
+  outstanding_requests = outstanding_requests - 1;
+  if (outstanding_requests <= 0) {
+    scraped = {
+      ladders: ladders,
+      fixture: fixture,
+      clubs: clubs,
+      grades: grades,
+      teams: teams,
+      matches: matches
+    };
+
+    if (res) {
+      res.status(200).send(scraped).end();
+    }
+    else {
+      console.log("All requests closed");
+    }
+  }
+}
+
+function scrapeMatch(req, res, grade, href, match) {
+  /*
+    updateFromJson(json) {
+    this.round = this.matchStore.rootStore.fixtureStore.fixture.round(json.roundNumber);
+    this.homeTeam = this.matchStore.rootStore.teamStore.resolve(json.homeTeamId);
+    this.awayTeam = this.matchStore.rootStore.teamStore.resolve(json.awayTeamId);
+    this.homeScore = json.homeScore;
+    this.awayScore = json.awayScore;
+  }
+  */
+  request(href, (error, response, html) => {
+    if (!error) {
+      aa = cheerio.load(html);
+      match.id = matches.length;
+      matches.push(match);
+    } else {
+      console.log(`ERROR: Failed to load match from ${href}`);
+    }
+
+    handleScrapeCompletion(res);
+  });
+}
+
+function extractMatches(req, res, baseUrl, grade, firstRoundContainer) {
+  let links = aa(firstRoundContainer).children().filter(ROUND_LINK_MATCH);
+  outstanding_requests = outstanding_requests + links.length;
+  links.each(function (i, elem) {
+    let href = baseUrl + "/" + aa(this).attr('href');
+    const linkName = aa(this).text().trim();
+    const match = linkName.match(/Round ([0-9]+) - (.*) vs (.*)\.html/);
+    const roundNumber = parseInt(match[1].trim(), 10);
+
+    if (SCRAPE_ONLY && DEBUG) {
+      console.log(`Grade ${grade.fullName} - Round ${roundNumber} at href ${href}: ${match[2]} vs ${match[3]} via text ${linkName}`);
+    }
+
+    let homeTeam = findTeam(grade.id, match[2]);
+    if (!homeTeam) {
+      console.log(`ERROR: Failed to determine home team for match ${match[2]} in grade ${grade.fullName}`);
+      handleScrapeCompletion(res);
+      return;
+    }
+    let awayTeam = findTeam(grade.id, match[3]);
+    if (!awayTeam) {
+      console.log(`ERROR: Failed to determine away team for match ${match[2]} in grade ${grade.fullName}`);
+      handleScrapeCompletion(res);
+      return;
+    }
+    scrapeMatch(req, res, grade, href,
+        {
+          id: -1,
+          roundNumber: roundNumber,
+          homeTeamId: homeTeam.id,
+          awayTeamId: awayTeam.id,
+          homeScore: 0,
+          awayScore: 0
+        });
+  });
 }
 
 function scrapeMatches(req, res) {
   console.log(`Loading matches`);
 
-  to_load = grades.length;
-  loaded = 0;
+  outstanding_requests = grades.length;
 
   grades.forEach(g => {
     const gradeMatchUrl = MATCHES_FOR_GRADE_URL.replace(/GRADE/, toTitleCase(g.fullName).replace(/ /g, '%20'));
-    console.log(`Loading results for ${g.fullName} from ${gradeMatchUrl}`);
+    const baseUrlForIndividualMatches = gradeMatchUrl.replace(/\/[^/]*$/, '');
+    if (SCRAPE_ONLY) {
+      console.log(`Loading results for ${g.fullName} from ${gradeMatchUrl}`);
+    }
 
     request(gradeMatchUrl, (error, response, html) => {
-      loaded = loaded + 1;
       if (!error) {
         aa = cheerio.load(html);
+        const firstRoundsContainer = aa("a").filter(ROUND_LINK_MATCH);
+        if (firstRoundsContainer) {
+          extractMatches(req, res, baseUrlForIndividualMatches, g, firstRoundsContainer.first().parent());
+        }
       } else {
         console.log("ERROR: Had an error matches for grade url");
       }
-      if (loaded >= to_load) {
-        scraped = {
-          ladders: ladders,
-          fixture: fixture,
-          clubs: clubs,
-          grades: grades,
-          teams: teams
-        };
-
-        if (res) {
-          res.status(200).send(scraped).end();
-        }
-        else {
-          console.log("done");
-        }
-      }
+      handleScrapeCompletion(res);
     });
   });
 }
