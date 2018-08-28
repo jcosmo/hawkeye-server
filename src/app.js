@@ -22,9 +22,9 @@ const ROUND_LINK_MATCH = function (i, elem) {
 if (LOCAL_NSNTA_CLONE) {
   NSNTA_GROUP = 'mens'; //'ladies', 'mixed'
   NSNTA_GROUP_CAMEL = 'Mens'; //'ladies', 'mixed'
-  FIXTURE_URL = `http://localhost:3000/fixtures${NSNTA_GROUP}.html`;
-  LADDER_URL = `http://localhost:3000/ladder${NSNTA_GROUP}.html`;
-  MATCHES_FOR_GRADE_URL = `http://localhost:3000/results/${NSNTA_GROUP_CAMEL}/GRADE/index.php`;
+  FIXTURE_URL = `http://localhost:8088/fixtures${NSNTA_GROUP}.html`;
+  LADDER_URL = `http://localhost:8088/ladder${NSNTA_GROUP}.html`;
+  MATCHES_FOR_GRADE_URL = `http://localhost:8088/results/${NSNTA_GROUP_CAMEL}/GRADE/index.php`;
 } else {
   NSNTA_GROUP = 'mens'; //'ladies', 'mixed'
   NSNTA_GROUP_CAMEL = 'Mens'; //'ladies', 'mixed'
@@ -441,6 +441,11 @@ app.get('/reset', function (req, res) {
   reset();
   res.status(200).send('OK').end();
 });
+
+if (LOCAL_NSNTA_CLONE) {
+  console.log("Using a local nsnta clone");
+  app.use(express.static('nsntaclone'));
+}
 
 if (!SCRAPE_ONLY) {
   app.listen('8088');
