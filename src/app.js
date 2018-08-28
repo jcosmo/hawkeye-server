@@ -18,6 +18,9 @@ const ROUND_NAME_MATCH = function (i, elem) {
 const ROUND_LINK_MATCH = function (i, elem) {
   return aa(elem).text().match(/Round /);
 };
+const TOTAL_SCORE_MATCH = function (i, elem) {
+  return aa(elem).text().match(/Total/);
+};
 
 if (LOCAL_NSNTA_CLONE) {
   NSNTA_GROUP = 'mens'; //'ladies', 'mixed'
@@ -306,6 +309,13 @@ function scrapeMatch(req, res, grade, href, match) {
   request(href, (error, response, html) => {
     if (!error) {
       aa = cheerio.load(html);
+
+      totalTdNode = aa('td').filter(TOTAL_SCORE_MATCH).first();
+      if (totalTdNode) {
+        match.homeScore = parseInt(totalTdNode.next('td').text(), 10);
+        match.awayScore = parseInt(totalTdNode.next('td').next('td').text(), 10);
+      }
+
       match.id = matches.length;
       matches.push(match);
     } else {
